@@ -20,10 +20,32 @@ func main() {
 
 	sep := func(title string) { fmt.Printf("\n===== %s =====\n", title) }
 
-	// ── 1. K 线数据 ─────────────────────────────────────────────────────
-	sep("立讯精密 日K线（后复权，最近5条）")
+	// ── 1a. 强类型日线 QueryDailyBars ────────────────────────────────────
+	sep("立讯精密 日K线-强类型（后复权，最近5条）")
+	dailyBars, _ := client.QueryDailyBars("sz.002475",
+		"date,open,high,low,close,preclose,volume,amount,turn,tradestatus,pctChg,isST",
+		"2026-05-01", "2026-05-19", baostock.AdjustPost)
+	fmt.Printf("共 %d 条\n", len(dailyBars))
+	for i, bar := range dailyBars {
+		if i >= 5 {
+			break
+		}
+		fmt.Printf("  %s  O=%-8s H=%-8s L=%-8s C=%-8s  pctChg=%s%%  ST=%s\n",
+			bar.Date, bar.Open, bar.High, bar.Low, bar.Close, bar.PctChg, bar.IsST)
+	}
+
+	// ── 1b. 强类型周线 QueryWeekBars ─────────────────────────────────────
+	sep("立讯精密 周K线（不复权，近4周）")
+	weekBars, _ := client.QueryWeekBars("sz.002475", "2026-04-01", "2026-05-19", baostock.AdjustNone)
+	for _, bar := range weekBars {
+		fmt.Printf("  %s  C=%s  pctChg=%s%%\n", bar.Date, bar.Close, bar.PctChg)
+	}
+
+	// ── 1c. 兼容旧接口 QueryHistoryKDataPlus（map 形式）────────────────────
+	sep("立讯精密 日K线-原始map（后复权，最近5条）")
 	kResult, _ := client.QueryHistoryKDataPlus("sz.002475",
-		"date,open,high,low,close,volume,pctChg", "2026-05-01", "2026-05-19", "d", "2")
+		"date,open,high,low,close,volume,pctChg", "2026-05-01", "2026-05-19",
+		baostock.FreqDay, baostock.AdjustPost)
 	fmt.Printf("共 %d 条，字段: %v\n", len(kResult.Records), kResult.Fields)
 	for i, rec := range kResult.Records {
 		if i >= 5 {
