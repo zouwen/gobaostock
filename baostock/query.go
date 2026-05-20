@@ -93,13 +93,29 @@ func parseResult(resp string, fieldsIdx, dataIdx int) (*Result, error) {
 // ---------------------------------------------------------------------------
 
 // TradeDateRecord 交易日历记录。
+//
+// 字段说明：
+//
+//	CalendarDate - 日期，格式 YYYY-MM-DD
+//	IsTradingDay - 是否交易日："1"=交易日，"0"=非交易日（周末、节假日、休市日）
 type TradeDateRecord struct {
-	CalendarDate string // 日期
-	IsTradingDay string // 1=交易日, 0=非交易日
+	CalendarDate string // 日期，格式 YYYY-MM-DD
+	IsTradingDay string // 是否交易日："1"=交易日，"0"=非交易日
 }
 
-// QueryTradeDates 查询给定范围内的交易日历。
-// 日期格式：2024-01-01；为空则使用默认值。
+// IsTradingDayBool 返回 bool 类型的交易日标志（便于程序判断）。
+func (r *TradeDateRecord) IsTradingDayBool() bool {
+	return r.IsTradingDay == "1"
+}
+
+// QueryTradeDates 查询指定日期范围内的交易日历。
+//
+// 参数说明：
+//
+//	startDate - 开始日期（含），格式 YYYY-MM-DD；为空时取 2015-01-01
+//	endDate   - 结束日期（含），格式 YYYY-MM-DD；为空时取当日
+//
+// 返回结果包含范围内的每一个自然日（含非交易日），通过 IsTradingDay 字段区分。
 func (c *Client) QueryTradeDates(startDate, endDate string) ([]*TradeDateRecord, error) {
 	if startDate == "" {
 		startDate = DefaultStartDate
@@ -107,8 +123,6 @@ func (c *Client) QueryTradeDates(startDate, endDate string) ([]*TradeDateRecord,
 	if endDate == "" {
 		endDate = time.Now().Format("2006-01-02")
 	}
-	// body: query_trade_dates \x01 userId \x01 1 \x01 10000 \x01 startDate \x01 endDate
-	// response: arr[9]=fields
 	msgBody := buildMsgBody("query_trade_dates", c.userID, "1", perPage(), startDate, endDate)
 	r, err := c.simpleQuery(MsgTypeTradeDatesReq, msgBody, 9, 6)
 	if err != nil {
@@ -131,19 +145,36 @@ func (c *Client) QueryTradeDates(startDate, endDate string) ([]*TradeDateRecord,
 // 所有证券列表
 // ---------------------------------------------------------------------------
 
-// StockRecord 证券列表记录。
+// StockRecord 某日所有证券信息记录。
+//
+// 字段说明：
+//
+//	Code        - 证券代码，格式 sh.600000（sh=上海，sz=深圳）
+//	TradeStatus - 交易状态："1"=正常交易，"0"=停牌
+//	CodeName    - 证券名称（如 浦发银行、*ST柳化）
 type StockRecord struct {
-	Code     string
-	CodeName string
+	Code        string // 证券代码，格式 sh.600519
+	TradeStatus string // 交易状态："1"=正常交易，"0"=停牌
+	CodeName    string // 证券名称
 }
 
-// QueryAllStock 查询给定日期的所有证券列表。
-// date 为空则取今日。
+// IsTrading 返回该证券当日是否正常交易（非停牌）。
+func (r *StockRecord) IsTrading() bool {
+	return r.TradeStatus == "1"
+}
+
+// QueryAllStock 查询指定交易日沪深市场的所有证券信息。
+//
+// 参数说明：
+//
+//	date - 查询日期，格式 YYYY-MM-DD；为空时取当日
+//	       注意：闭市后日K线数据更新后，该接口才会返回当天数据，否则返回空。
+//
+// 返回包含当日全部上市证券（含停牌），通过 TradeStatus 字段区分交易状态。
 func (c *Client) QueryAllStock(date string) ([]*StockRecord, error) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	// response: arr[8]=fields
 	msgBody := buildMsgBody("query_all_stock", c.userID, "1", perPage(), date)
 	r, err := c.simpleQuery(MsgTypeAllStockReq, msgBody, 8, 6)
 	if err != nil {
@@ -154,7 +185,11 @@ func (c *Client) QueryAllStock(date string) ([]*StockRecord, error) {
 	}
 	stocks := make([]*StockRecord, 0, len(r.Rows))
 	for _, row := range r.Rows {
-		stocks = append(stocks, &StockRecord{Code: row["code"], CodeName: row["code_name"]})
+		stocks = append(stocks, &StockRecord{
+			Code:        row["code"],
+			TradeStatus: row["tradeStatus"],
+			CodeName:    row["code_name"],
+		})
 	}
 	return stocks, nil
 }
@@ -164,15 +199,26 @@ func (c *Client) QueryAllStock(date string) ([]*StockRecord, error) {
 // ---------------------------------------------------------------------------
 
 // StockBasic 证券基本资料。
+//
+// 字段说明：
+//
+//	Code      - 证券代码，格式 sh.600519
+//	CodeName  - 证券名称
+//	IPODate   - 上市日期，格式 YYYY-MM-DD
+//	OutDate   - 退市日期，格式 YYYY-MM-DD；尚未退市则为空
+//	StockType - 证券类型："1"=股票，"2"=指数，"3"=其他
+//	Status    - 上市状态："1"=上市，"2"=退市，"3"=暂停上市
+//	ExchSrq   - 是否为沪/深股通标的："sh"=沪股通，"sz"=深股通，"0"=非沪深股通
+//	IsSt      - 是否ST："1"=是，"0"=否
 type StockBasic struct {
-	Code      string // 证券代码
+	Code      string // 证券代码，格式 sh.600519
 	CodeName  string // 证券名称
-	IPODate   string // 上市日期
-	OutDate   string // 退市日期
-	StockType string // 1=股票, 2=指数, 3=其他
-	Status    string // 1=上市, 2=退市, 3=暂停上市
-	ExchSrq   string // sh=沪股通, sz=深股通, 0=非
-	IsSt      string // 是否ST: 1=是, 0=否
+	IPODate   string // 上市日期，格式 YYYY-MM-DD
+	OutDate   string // 退市日期，格式 YYYY-MM-DD；未退市为空
+	StockType string // 证券类型："1"=股票，"2"=指数，"3"=其他
+	Status    string // 上市状态："1"=上市，"2"=退市，"3"=暂停上市
+	ExchSrq   string // 沪深股通："sh"=沪股通，"sz"=深股通，"0"=非
+	IsSt      string // 是否ST："1"=是，"0"=否
 }
 
 // QueryStockBasic 查询证券基本资料。
