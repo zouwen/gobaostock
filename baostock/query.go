@@ -200,14 +200,16 @@ func (c *Client) QueryAllStock(date string) ([]*StockRecord, error) {
 
 // StockBasic 证券基本资料。
 //
+// 数据说明：包含沪深两市全部证券的基本信息，可通过代码或名称检索。
+//
 // 字段说明：
 //
-//	Code      - 证券代码，格式 sh.600519
+//	Code      - 证券代码，格式 sh.600519（sh=上海，sz=深圳）
 //	CodeName  - 证券名称
 //	IPODate   - 上市日期，格式 YYYY-MM-DD
-//	OutDate   - 退市日期，格式 YYYY-MM-DD；尚未退市则为空
-//	StockType - 证券类型："1"=股票，"2"=指数，"3"=其他
-//	Status    - 上市状态："1"=上市，"2"=退市，"3"=暂停上市
+//	OutDate   - 退市日期，格式 YYYY-MM-DD；尚未退市则为空字符串
+//	StockType - 证券类型："1"=股票，"2"=指数，"3"=其他，"4"=可转债，"5"=ETF
+//	Status    - 上市状态："1"=上市，"0"=退市
 //	ExchSrq   - 是否为沪/深股通标的："sh"=沪股通，"sz"=深股通，"0"=非沪深股通
 //	IsSt      - 是否ST："1"=是，"0"=否
 type StockBasic struct {
@@ -215,14 +217,31 @@ type StockBasic struct {
 	CodeName  string // 证券名称
 	IPODate   string // 上市日期，格式 YYYY-MM-DD
 	OutDate   string // 退市日期，格式 YYYY-MM-DD；未退市为空
-	StockType string // 证券类型："1"=股票，"2"=指数，"3"=其他
-	Status    string // 上市状态："1"=上市，"2"=退市，"3"=暂停上市
+	StockType string // 证券类型："1"=股票，"2"=指数，"3"=其他，"4"=可转债，"5"=ETF
+	Status    string // 上市状态："1"=上市，"0"=退市
 	ExchSrq   string // 沪深股通："sh"=沪股通，"sz"=深股通，"0"=非
 	IsSt      string // 是否ST："1"=是，"0"=否
 }
 
+// IsListed 返回该证券是否处于上市状态。
+func (r *StockBasic) IsListed() bool { return r.Status == "1" }
+
+// IsStock 返回该证券是否为普通股票（type=1）。
+func (r *StockBasic) IsStock() bool { return r.StockType == "1" }
+
+// IsETF 返回该证券是否为 ETF（type=5）。
+func (r *StockBasic) IsETF() bool { return r.StockType == "5" }
+
+// IsBond 返回该证券是否为可转债（type=4）。
+func (r *StockBasic) IsBond() bool { return r.StockType == "4" }
+
 // QueryStockBasic 查询证券基本资料。
-// code 格式 sh.600519，为空则查全部；codeName 支持模糊匹配。
+//
+// 参数说明：
+//
+//	code     - 股票代码，格式 sh.600519；可以为空，为空时查全部证券
+//	codeName - 证券名称，支持模糊查询（如 "浦发"）；可以为空
+//	           两个参数同时为空时，返回全部股票的基本信息。
 func (c *Client) QueryStockBasic(code, codeName string) ([]*StockBasic, error) {
 	code = strings.ToLower(strings.TrimSpace(code))
 	// response: arr[9]=fields
@@ -311,16 +330,22 @@ func (c *Client) QueryStockIndustry(code, date string) ([]*StockIndustry, error)
 // 指数成分股（内部通用）
 // ---------------------------------------------------------------------------
 
-// IndexStock 指数成分股记录。
+// IndexStock 指数成分股记录（沪深300 / 上证50 / 中证500）。
+//
+// 数据说明：更新频率每周一。
+//
+// 字段说明：
+//
+//	UpdateDate - 本条记录的更新日期，格式 YYYY-MM-DD
+//	Code       - 成分股证券代码，格式 sh.600519
+//	CodeName   - 成分股证券名称
 type IndexStock struct {
-	Date        string
-	Code        string
-	DisplayName string
-	CodeName    string
+	UpdateDate string // 更新日期，格式 YYYY-MM-DD
+	Code       string // 证券代码，格式 sh.600519
+	CodeName   string // 证券名称
 }
 
 // queryIndexStocks 内部通用：查询某个指数成分股。
-// response: arr[8]=fields, arr[7]=date
 func (c *Client) queryIndexStocks(msgType, methodName, date string) ([]*IndexStock, error) {
 	msgBody := buildMsgBody(methodName, c.userID, "1", perPage(), date)
 	r, err := c.simpleQuery(msgType, msgBody, 8, 6)
@@ -333,26 +358,37 @@ func (c *Client) queryIndexStocks(msgType, methodName, date string) ([]*IndexSto
 	stocks := make([]*IndexStock, 0, len(r.Rows))
 	for _, row := range r.Rows {
 		stocks = append(stocks, &IndexStock{
-			Date:        row["date"],
-			Code:        row["code"],
-			DisplayName: row["display_name"],
-			CodeName:    row["code_name"],
+			UpdateDate: row["updateDate"],
+			Code:       row["code"],
+			CodeName:   row["code_name"],
 		})
 	}
 	return stocks, nil
 }
 
-// QueryHS300Stocks 查询沪深300成分股。date 为空则查最新。
+// QueryHS300Stocks 查询沪深300成分股。
+//
+// 参数说明：
+//
+//	date - 查询日期，格式 YYYY-MM-DD；为空时默认返回最新成分股名单（每周一更新）
 func (c *Client) QueryHS300Stocks(date string) ([]*IndexStock, error) {
 	return c.queryIndexStocks(MsgTypeHS300Req, "query_hs300_stocks", date)
 }
 
 // QuerySZ50Stocks 查询上证50成分股。
+//
+// 参数说明：
+//
+//	date - 查询日期，格式 YYYY-MM-DD；为空时默认返回最新成分股名单（每周一更新）
 func (c *Client) QuerySZ50Stocks(date string) ([]*IndexStock, error) {
 	return c.queryIndexStocks(MsgTypeSZ50Req, "query_sz50_stocks", date)
 }
 
 // QueryZZ500Stocks 查询中证500成分股。
+//
+// 参数说明：
+//
+//	date - 查询日期，格式 YYYY-MM-DD；为空时默认返回最新成分股名单（每周一更新）
 func (c *Client) QueryZZ500Stocks(date string) ([]*IndexStock, error) {
 	return c.queryIndexStocks(MsgTypeZZ500Req, "query_zz500_stocks", date)
 }

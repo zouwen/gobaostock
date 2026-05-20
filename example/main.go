@@ -87,7 +87,7 @@ func main() {
 		if i >= 3 {
 			break
 		}
-		fmt.Printf("  %s  %s\n", s.Code, s.DisplayName)
+		fmt.Printf("  %s  %s\n", s.Code, s.CodeName)
 	}
 
 	// ── 6. 复权因子 ───────────────────────────────────────────────────────
