@@ -255,19 +255,37 @@ func (c *Client) QueryStockBasic(code, codeName string) ([]*StockBasic, error) {
 // ---------------------------------------------------------------------------
 
 // StockIndustry 行业分类记录。
+//
+// 数据来源：证监会行业分类（CSRC），每周一更新。
+//
+// 字段说明：
+//
+//	UpdateDate             - 本条记录的更新日期，格式 YYYY-MM-DD
+//	Code                   - 证券代码，格式 sh.600519
+//	CodeName               - 证券名称
+//	Industry               - 所属行业，格式为行业代码+名称，如 "J66货币金融服务"
+//	IndustryClassification - 行业分类标准，目前固定为 "证监会行业分类"
 type StockIndustry struct {
-	UpdateDate             string
-	Code                   string
-	CodeName               string
-	Industry               string
-	IndustryClassification string
+	UpdateDate             string // 更新日期，格式 YYYY-MM-DD
+	Code                   string // 证券代码，格式 sh.600519
+	CodeName               string // 证券名称
+	Industry               string // 所属行业，如 "J66货币金融服务"、"C39计算机、通信和其他电子设备制造业"
+	IndustryClassification string // 行业分类标准，目前固定为 "证监会行业分类"
 }
 
-// QueryStockIndustry 查询股票行业分类信息（申万一级行业）。
-// code 格式 sh.600519；date 格式 2024-01-01，为空查最新。
+// QueryStockIndustry 查询股票行业分类信息（证监会行业分类，每周一更新）。
+//
+// 参数说明：
+//
+//	code - 股票代码，格式 sh.600519 / sz.002475；可以为空，为空时返回全部股票的行业分类
+//	date - 查询日期，格式 YYYY-MM-DD；为空时默认返回最新数据
+//
+// 返回字段示例：
+//
+//	updateDate="2018-11-26"  code="sh.600000"  code_name="浦发银行"
+//	industry="J66货币金融服务"  industryClassification="证监会行业分类"
 func (c *Client) QueryStockIndustry(code, date string) ([]*StockIndustry, error) {
 	code = strings.ToLower(strings.TrimSpace(code))
-	// response: arr[9]=fields（code + date）
 	msgBody := buildMsgBody("query_stock_industry", c.userID, "1", perPage(), code, date)
 	r, err := c.simpleQuery(MsgTypeStockIndustryReq, msgBody, 9, 6)
 	if err != nil {
