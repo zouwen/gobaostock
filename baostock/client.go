@@ -121,7 +121,14 @@ func (c *Client) sendRecv(msgType, msgBody string) (string, error) {
 }
 
 // parseCompressedResponse 解析压缩响应（K 线 Plus）：21 字节头 + zlib 压缩体
-func (c *Client) parseCompressedResponse(raw []byte) (string, error) {
+func (c *Client) parseCompressedResponse(raw []byte) (result string, retErr error) {
+	// 防止切片越界或 zlib 崩溃导致 panic
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("baostock: parseCompressedResponse panic: %v", r)
+		}
+	}()
+
 	if len(raw) < HeaderLength {
 		return "", fmt.Errorf("baostock: response too short (%d bytes)", len(raw))
 	}
@@ -136,6 +143,11 @@ func (c *Client) parseCompressedResponse(raw []byte) (string, error) {
 	innerLenStr := strings.TrimSpace(headParts[2])
 	innerLen := 0
 	fmt.Sscanf(innerLenStr, "%d", &innerLen)
+
+	// 边界检查：防止 innerLen 是脏数据导致切片越界
+	if innerLen <= 0 || HeaderLength+innerLen > len(raw) {
+		return "", fmt.Errorf("baostock: invalid innerLen %d (raw=%d)", innerLen, len(raw))
+	}
 
 	compressedBody := raw[HeaderLength : HeaderLength+innerLen]
 	r, err := zlib.NewReader(bytes.NewReader(compressedBody))
